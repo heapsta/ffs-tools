@@ -1,0 +1,244 @@
+#!/bin/env bash
+#: Title        : fps - Flat Parser String
+#: Version      : v.1.0.1
+#: Author       : heapsta "<heapsta@protonmail.com"
+#: Date         : 2021-02-20
+#: Description  : Given a path sflatter rename the file in a predictible way
+#: Options      : -v toogles verbose.
+#:                -c prefixs string with creation date.
+#:                -m prefixs string with last modification date.
+#:                -u sufix string with a uuid.
+#:                -l change maximal string length. Default is 3 char.
+
+# Setting some helper consts
+readonly PASS='PASS'
+readonly FAIL="FAIL"
+readonly TIMER=0.1
+readonly SCRIPT_NAME="$(head -n 10 "$0" | grep Title | sed -e 's/^\#\:\ *Title\ *\:\ *//g')"
+readonly SCRIPT_VERSION="$(head -n 10 "$0" | grep Version | grep -P -o 'v\.[0-9].*')"
+readonly SPACE="$(("$(tput cols)" / 3))"
+
+# Setting error messages
+readonly ERR01="[01] Wrong usage or requirements not satisfied"
+readonly ERR02="[02] Input not allowed"
+readonly ERR03="[03] Error parsing input"
+readonly ERR04="[04] Error parsing input"
+readonly ERR05="[05] Error testing string"
+readonly ERR06="[06] Error parsing creation date"
+readonly ERR07="[07] Error parsing modification date"
+readonly ERR08="[08] Error generating uuid"
+readonly ERR09="[09] Error generating output"
+readonly ERR10="[10] Error checking string"
+readonly ERR11="[11] Error checking string"
+readonly ERR12="[12] Error checking string"
+readonly ERR13="[13] Error checking string"
+readonly ERR14="[14] Error checking string"
+readonly ERR15="[15] Error checking string"
+
+# Options const 
+OPT_VERBOSE=''
+OPT_CDATE=''
+OPT_MDATE=''
+OPT_UUID=''
+OPT_LENGTH=''
+
+# Globals
+INPUT=
+INPUT_EXTENSION=
+INPUT_RAW=
+STRG_BUILDER=''
+OUTPUT=
+
+print_stderr() {
+  local datetime
+  datetime="$(date +'%Y-%m-%dT%H:%M:%S%z')"
+  
+  printf "\e[0;31m[$datetime][FPS] %s\e[0;0m\n" "$*" >&2
+  
+  if [[ -n $INPUT_RAW ]]; then
+    printf "\e[0;31m[$datetime][FPS] INPUT_RAW -> %s\e[0;0m\n" "$INPUT_RAW"
+  fi
+  
+  exit 1
+}
+
+print_stdout() {
+  local datetime
+  datetime="$(date +'%Y-%m-%dT%H:%M:%S')"
+  
+  if [[ -n $OPT_VERBOSE ]]; then
+      if [[ $2 == "$PASS" ]]; then
+        printf "[$datetime]: CHECKER %-${SPACE}s \e[1;32m%s\e[0;0m\n" "$1" "$2" >&1
+        sleep $TIMER
+      elif [[ $2 == "$FAIL" ]]; then
+        printf "[$datetime]: CHECKER %-${SPACE}s \e[1;31m%s\e[0;0m\n" "$1" "$2" >&1
+        sleep $TIMER
+      else
+        printf "[$datetime]: %-${SPACE}s %s\n" "$1" "$2" >&1
+        sleep $TIMER
+      fi
+  fi
+}
+
+check_str() {
+  if [[ -n "$1" ]] && [[ -n "$2" ]]; then
+    if [[ ! $1 =~ $2 ]]; then
+      print_stdout "$3" "$PASS"
+      return 0
+    else
+      print_stdout "$3" "$FAIL"
+      return 1
+    fi
+  else
+    print_stderr "$ERR05"
+  fi
+}
+
+parse_strg() {
+  while IFS=/ read -a strings; do
+    for string in "${strings[@]}"; do
+      
+      # Passing file name through checkers
+      if ! check_str "$string" "[A-Z]" "word case"; then
+        if ! string="$(printf "%s" "$string" | sed -e 's/.*/\L\0/g' 2>/dev/null)" \
+          && [[ -z "$string" ]]; then
+            print_stderr "$ERR10"
+        fi
+      fi
+
+      if ! check_str "$string" "[\.\:\,\;\-]" "bad punctuations"; then
+        if ! string="$(printf "%s" "$string" | \
+          sed -e 's/[\.\:\,\;\-]/_/g' 2>/dev/null)" && [[ -z "$string" ]]; then
+            print_stderr "$ERR11"
+        fi
+      fi
+
+      if ! check_str "$string" "[\ +]" "whitespaces"; then
+        if ! string="$(printf "%s" "$string" | sed -e 's/[\ +]/_/g' 2>/dev/null)" \
+          && [[ -z "$string" ]]; then
+            print_stderr "$ERR12"
+        fi
+      fi
+
+      if ! check_str "$string" "[\_+]" "underscores"; then
+        if ! string="$(printf "%s" "$string" | sed -e 's/[\_+]/_/g' 2>/dev/null)" \
+          && [[ -z "$string" ]]; then
+            print_stderr "$ERR13"
+        fi
+      fi
+
+      if ! check_str "$string" "^\_" "begin underscores"; then
+        if ! string="$(printf "%s" "$string" | sed -e 's/^\_//g' 2>/dev/null)" \
+          && [[ -z "$string" ]]; then
+            print_stderr "$ERR14"
+        fi
+      fi
+
+      if ! check_str "$string" "\_$" "end underscores"; then
+        if ! string="$(printf "%s" "$string" | sed -e 's/\_$//g' 2>/dev/null)" \
+          && [[ -z "$string" ]]; then
+            print_stderr "$ERR15"
+        fi
+      fi
+
+      # Reduxing file to max. length
+      string="$(printf "%s" "$string" | cut -c -"${OPT_LENGTH:-3}")"
+
+      # Building output
+      if [ -z "$STRG_BUILDER" ]; then
+        STRG_BUILDER="$string"
+      else
+        STRG_BUILDER="${STRG_BUILDER}-${string}"
+      fi
+
+    done
+  done <<<"$INPUT_RAW"
+
+  if [[ -n $OPT_CDATE ]]; then
+    if cdate="$(stat -c %w "$INPUT" 2>/dev/null | awk '{ print $1 }')" \
+      && [[ -n "$cdate" ]]; then
+        STRG_BUILDER="${cdate}-${STRG_BUILDER}"
+    else
+      print_stderr "$ERR06"
+    fi
+  fi
+
+  if [[ -n $OPT_MDATE ]]; then
+    if mdate="$(stat -c %x "$INPUT" 2>/dev/null | awk '{ print $1 }')" \
+      && [[ -n "$mdate" ]]; then
+        STRG_BUILDER="${mdate}-${STRG_BUILDER}"
+    else
+      print_stderr "$ERR07"
+    fi
+  fi
+
+  if [[ -n $OPT_UUID ]]; then
+    if uuid="$(uuidgen | cut -c -"${length:-3}")" && [[ -n "$uuid" ]]; then
+      STRG_BUILDER="${STRG_BUILDER}-${uuid}"
+    else 
+      print_stderr "$ERR08"
+    fi
+  fi
+  
+  readonly OUTPUT="${STRG_BUILDER}${INPUT_EXTENSION}"
+}
+
+set_up() {
+  local string_l string_r extension raw
+
+  string_l="$(printf "%s" "$1" | grep -P -o '.*\/')"
+
+  if string_r="$(printf "%s" "$1" | sed -e 's/.*\///g' 2>/dev/null)"; then
+      readonly INPUT="${string_l}${string_r}"
+  else
+    print_stderr "$ERR03"
+  fi
+  
+  extension="$(printf "%s" "$string_r" | grep -P -o '\.[a-zA-Z0-9]+$')"
+  readonly INPUT_EXTENSION="$extension"
+   
+  if raw="${string_l}$(printf "%s" "$string_r" | sed -e "s|${extension:-''}||g" 2>/dev/null)"; then
+    if raw="$(printf "%s" "$raw" | sed -e 's/^\///g' 2>/dev/null)"; then
+      readonly INPUT_RAW="$raw"
+    else
+      print_stderr "$ERR04"
+    fi
+  else
+    print_stderr "$ERR04"
+  fi
+}
+
+while getopts "vcmul:" opts; do
+  case $opts in
+  v) readonly OPT_VERBOSE=1 ;;
+  c) readonly OPT_CDATE=1 ;;
+  m) readonly OPT_MDATE=1 ;;
+  u) readonly OPT_UUID=1 ;;
+  l) readonly OPT_LENGTH=$OPTARG ;;
+  *) print_stderr "$ERR01" ;;
+  # TODO To be implemented
+  # h) show_usage; exit 0;
+  esac
+done
+shift "$((OPTIND - 1))"
+
+if [[ -n $1  ]]; then # && [[ -f $1 ]]
+  
+  #Script greetings
+  print_stdout "SCRIPT:" "$SCRIPT_NAME $SCRIPT_VERSION"
+  print_stdout "INPUT PATH:" "$1"
+else
+  print_stderr "$ERR02"
+fi
+
+set_up "$1"
+
+parse_strg
+
+if [[ -n "$OUTPUT" ]]; then
+  printf "%s\n" "$OUTPUT"
+else
+  print_stderr "$ERR09"
+fi
+
+exit 0

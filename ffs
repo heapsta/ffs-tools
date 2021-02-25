@@ -1,0 +1,267 @@
+#!/bin/env bash
+#: Title    : ffs - Flat File System
+#: Version  : v.1.0.0
+#: Author   : heapsta "<heapsta@protonmail.com>"
+#: Date     : 2021-02-20
+#: Sinopsys : A easy way to archive files by files extensions
+#: Options  : -x disables debug mode. Modifications will be done
+#:            -v toggle verbose mode.
+#:            -k toogle hidden files mode. All hidden objects will be passed. 
+#                Warning: Config files can be unsuable after that.
+#:            -c adds creation date to file name 
+#:            -m adds modification date to file name
+
+# Defining script medata
+readonly SCRIPT_NAME="$(head -n 2 "$0" | grep Title | sed -e 's/^\#\:\ *Title\ *\:\ *//g')"
+readonly SCRIPT_VERSION="$(head -n 3 "$0" | grep Version | grep -P -o 'v\.[0-9].*')"
+readonly CSV="$(date +'%Y-%m-%d-%H-%M-%S').csv"
+
+# Defining Error messages
+readonly ERR01='[01] Not allowed usage!'
+readonly ERR02='[02] Input folder is probably empty. Wrong usage'
+readonly ERR03='[03] Something went wrong setting output folder'
+readonly ERR04='[04] Something goes wrong counting files of given input'
+readonly ERR05='[05] Something went wrong calculation input size'
+readonly ERR06='[06] Something went wrong setting input file'
+readonly ERR07='[07] Something went wrong parsing file creation and modification date'
+readonly ERR08='[08] Something went wrong parsing file creation date'
+readonly ERR09='[09] Something went wrong parsing file modifications date'
+readonly ERR10='[10] Something went wrong parsing input file'
+readonly ERR11='[11] Something went wrong setting output path'
+readonly ERR12='[12] Error setting output'
+readonly ERR13='[13] Requirements not satisfied. Check if fps is in PATH'
+
+# Globals
+COUNTER=1
+OPT_DEBUG=1
+OPT_VERBO=0
+OPT_DOTFI=0
+OPT_CDATE=0
+OPT_MDATE=0
+INPUT_FOLDER=''
+INPUT_FOLDER_COUNT=''
+INPUT_FOLDER_SIZE=''
+OUTPUT_FOLDER=''
+
+print_stderr() {
+  printf "\e[1;31m[$(date +'%Y-%m-%dT%H:%M:%S%z')][FFS] %s\e[0;0m\n" "$*" >&2
+  exit 1
+}
+
+print_stdout() {
+  local percent
+  percent="$(((COUNTER * 100) / INPUT_FOLDER_COUNT))"
+
+  if [[ $OPT_VERBO -gt 0 ]]; then
+    printf "[$(date +'%Y-%m-%dT%H:%M:%S')]: %02d%% %-30s %s\n" "$percent" "$1" "$2" >&1
+  fi
+}
+
+clean_up() {
+  if [[ $OPT_DEBUG -eq 0 ]]; then
+    for folder in "$INPUT_FOLDER"/*; do
+      if [[ -d $folder ]] && [[ $folder != "$OUTPUT_FOLDER" ]]; then
+        rm -R "$folder"
+      fi
+    done
+  fi
+}
+
+#################################################
+# flat_fs goes recursivelly through folders searching
+# for files to be parsed with fps tool
+# Globals
+#   OPT_MDATE, OPT_CDATE
+#   ERR006, ERR07, ERR08, ERR09, ERR10, ERR11, ERR12
+#   OUTPUT_FOLDER, INPUT_FOLDER
+#   COUNTER
+# Arguments
+#   A not empty and parsed folder path
+# Requires
+#   fps tool im $PATH
+#################################################
+flat_fs() {
+  local input parsed extension fullpath output
+
+  for data in "$1"/*; do
+    # Do it recursively
+    if [[ -d "$data" ]] && [[ $data != "$OUTPUT_FOLDER" ]]; then
+      flat_fs "$data"
+    fi
+
+    # Main process. Here will be moved files and exports csv
+    if [[ -f $data ]] && [[ $data != "$CSV" ]]; then
+
+      if ! input="$data" && [[ -z "$input" ]]; then
+        print_stderr "$ERR06"
+      fi
+
+      if [[ $OPT_CDATE -gt 0 ]] && [[ $OPT_MDATE -gt 0 ]]; then
+        if ! parsed="$(fps -u -c -m "$input")" || [[ -z "$parsed" ]]; then
+          print_stderr "$ERR07"
+        fi
+      
+      elif [[ $OPT_CDATE -gt 0 ]]; then
+        if ! parsed="$(fps -u -c "$input")" || [[ -z "$parsed" ]]; then
+          print_stderr "$ERR08"
+        fi
+      
+      elif [[ $OPT_MDATE -gt 0 ]]; then
+        if ! parsed="$(fps -u -m "$input")" || [[ -z "$parsed" ]]; then
+          print_stderr "$ERR09"
+        fi
+      
+      else
+        if ! parsed="$(fps -u "$input")" || [[ -z "$parsed" ]]; then
+          print_stderr "$ERR10"
+        fi
+      fi
+
+      extension="$(printf "%s" "$parsed" | grep -P -o '(?<=\.)[a-zA-Z0-9]+$')"
+
+      if ! fullpath="${OUTPUT_FOLDER}/${extension:-"noext"}" && [[ -z "$fullpath" ]]; then
+        print_stderr "$ERR11"
+      fi     
+
+      if ! output="${fullpath}/${parsed}" && [[ -z "$output" ]]; then
+        print_stderr "$ERR12"
+      fi
+
+      # Export csv
+      printf "%s;%s;%s\n" "$extension" "$input" "$output" >>"${INPUT_FOLDER}/${CSV}"
+
+      # Creates output path and move files with parsed names to correct folder
+      if [[ $OPT_DEBUG -eq 0 ]]; then
+        mkdir -p "$fullpath"
+        mv "$input" "${output}"
+      fi
+
+      # Display information 
+      print_stdout "IN:" "$input"
+      print_stdout "OUT:" "$output"
+
+      # Refreshing file counter
+      COUNTER="$((COUNTER + 1))"
+    fi
+  done
+}
+
+#################################################
+# set_up makes some runtime sanity checks.
+# Also initializes important globals like INPUT_FOLDER,
+# OUTPUT_FOLDER and informational variables 
+# like INPUT_FOLDER_COUNT. Set output folder to OUT/
+# Globals:
+#   INPUT_FOLDER, OUTPUT_FOLDER 
+#   INPUT_FOLDER_COUNT, INPUT_FOLDER_SIZE
+# Arguments:
+#   A folder path
+#################################################
+set_up() {
+  local input output count size csv
+
+  if [[ -n $1 ]] && [[ -d $1 ]]; then
+    if input="$(printf "%s" "$1" | sed -e 's/\/$//g' 2>/dev/null)" \
+        && [[ -n "$input" ]]; then
+          output="${input}/OUT"
+    else
+      print_stderr "$ERR10"
+    fi
+  fi
+
+  if [[ $OPT_DOTFI -gt 0 ]]; then
+    if ! count="$(find "$input" -not -path "${output}/*" -type f 2>/dev/null | \
+        wc -l)" && [[ -z "$count" ]]; then
+          print_stderr "$ERR"
+    fi
+    if ! size="$(du -s --exclude="${output}" | awk '{ print $1 }' | \
+        sed -e 's/[a-zA-Z]\+$//g' 2>/dev/null)" && [[ -z "$size" ]]; then
+          print_stderr "$ERR"
+    fi
+  else
+    if ! count="$(find "$input" -not -path "${output}/*" -not -path "*/\.*" -type f | \
+        wc -l)" && [[ -z "$count" ]]; then
+          print_stderr "$ERR"
+    fi
+    if ! size="$(du -s --exclude="${output}/" --exclude="./\.*" | awk '{ print $1 }' | \
+        sed -e 's/[a-zA-Z]\+$//g')" && [[ -z "$size" ]]; then
+          print_stderr "$ERR"
+    fi
+  fi
+
+  if [[ -n $input ]]; then
+    readonly INPUT_FOLDER="$input"
+  else
+    print_stderr "$ERR02"
+  fi
+
+  if [[ -n $output ]]; then
+    readonly OUTPUT_FOLDER="$output"
+  else
+    print_stderr "$ERR03"
+  fi
+
+  if [[ -n $count ]]; then
+    readonly INPUT_FOLDER_COUNT="$count"
+  else
+    print_stderr "$ERR04"
+  fi
+
+  if [[ -n $size ]]; then
+    readonly INPUT_FOLDER_SIZE="$size"
+  else
+    print_stderr "$ERR05"
+  fi
+
+  csv="${INPUT_FOLDER}/${CSV}"
+  if [[ -n "$csv" ]]; then
+    touch "$csv"
+  fi
+}
+
+while getopts "xvkcm" opts; do
+  case $opts in
+  x) OPT_DEBUG="$((OPT_DEBUG - 1))" ;;
+  v) OPT_VERBO="$((OPT_VERBO + 1))" ;;
+  k) OPT_DOTFI="$((OPT_DOTFI + 1))" ;;
+  c) OPT_CDATE="$((OPT_CDATE + 1))" ;;
+  m) OPT_MDATE="$((OPT_MDATE + 1))" ;;
+  # TODO To be implemented
+  # h) echo show usage ;;
+  # l) OPT_SLENGTH="$OPTARG"
+  *) print_stderr "$ERR01" ;;
+  esac
+done
+shift "$((OPTIND - 1))"
+
+# Making passed options arguments immutable
+readonly OPT_DEBUG
+readonly OPT_VERBO
+readonly OPT_DOTFI
+readonly OPT_CDATE
+readonly OPT_MDATE
+
+if [[ $OPT_DOTFI -gt 0 ]]; then
+  shopt -s dotglob
+fi
+
+if [[ -z "$(which fps)" ]]; then
+  print_stderr "$ERR13"
+fi
+
+set_up "$1"
+
+# Grettings
+printf "%s %s\n" "SCRIPT NAME"     "$SCRIPT_NAME"
+printf "%s %s\n" "SCRIPT VERSION"  "$SCRIPT_VERSION"
+printf "%s %s\n" "INPUT FOLDER:"   "$INPUT_FOLDER"
+printf "%s %s\n" "OUTPUT FOLDER:"  "$OUTPUT_FOLDER"
+printf "%s %s\n" "FILES COUNT:"    "$INPUT_FOLDER_COUNT"
+printf "%s %s\n" "FOLDER SIZE:"    "$INPUT_FOLDER_SIZE"
+printf "%s %s\n" "CSV EXPORT: "    "${OUTPUT_FOLDER}/${CSV}"
+
+flat_fs "$INPUT_FOLDER"
+
+clean_up
+
+exit 0
