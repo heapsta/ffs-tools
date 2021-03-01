@@ -20,8 +20,7 @@ After mulptiple attemps to find a predictable way to organise files in a organis
 # Installation
 
 ``` shell
-$ git clone https://github.com/heapsta/ffs-tools.git 
-$ ./install.sh ** TO BE IMPLEMENTED
+$ git clone https://github.com/heapsta/ffs-tools.git {:} 
 ```
 
 # Usage

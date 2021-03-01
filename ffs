@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/bin/bash
 #: Title    : ffs - Flat File System
 #: Version  : v.1.0.0
 #: Author   : heapsta "<heapsta@protonmail.com>"
@@ -29,7 +29,11 @@ readonly ERR09='[09] Something went wrong parsing file modifications date'
 readonly ERR10='[10] Something went wrong parsing input file'
 readonly ERR11='[11] Something went wrong setting output path'
 readonly ERR12='[12] Error setting output'
-readonly ERR13='[13] Requirements not satisfied. Check if fps is in PATH'
+readonly ERR13='[13] Error by counting files.'
+readonly ERR14='[14] Error by counting files.'
+readonly ERR15='[15] Error by counting files.'
+readonly ERR16='[16] Error by counting files.'
+readonly ERR17='[17] Error by counting files.'
 
 # Globals
 COUNTER=1
@@ -53,7 +57,7 @@ print_stdout() {
   percent="$(((COUNTER * 100) / INPUT_FOLDER_COUNT))"
 
   if [[ $OPT_VERBO -gt 0 ]]; then
-    printf "[$(date +'%Y-%m-%dT%H:%M:%S')]: %02d%% %-30s %s\n" "$percent" "$1" "$2" >&1
+    printf "[$(date +'%Y-%m-%dT%H:%M:%S')]: %03d%% %-30s %s\n" "$percent" "$1" "$2" >&1
   fi
 }
 
@@ -80,7 +84,7 @@ clean_up() {
 # Requires
 #   fps tool im $PATH
 #################################################
-flat_fs() {
+transverse() {
   local input parsed extension fullpath output
 
   for data in "$1"/*; do
@@ -133,7 +137,7 @@ flat_fs() {
       # Creates output path and move files with parsed names to correct folder
       if [[ $OPT_DEBUG -eq 0 ]]; then
         mkdir -p "$fullpath"
-        mv "$input" "${output}"
+        mv "$input" "$output"
       fi
 
       # Display information 
@@ -169,23 +173,23 @@ set_up() {
     fi
   fi
 
-  if [[ $OPT_DOTFI -gt 0 ]]; then
+  if [[ $OPT_DOTFI -gt 1 ]]; then
     if ! count="$(find "$input" -not -path "${output}/*" -type f 2>/dev/null | \
         wc -l)" && [[ -z "$count" ]]; then
-          print_stderr "$ERR"
+          print_stderr "$ERR14"
     fi
-    if ! size="$(du -s --exclude="${output}" | awk '{ print $1 }' | \
+    if ! size="$(du -s --exclude="${output}" "$input"| awk '{ print $1 }' | \
         sed -e 's/[a-zA-Z]\+$//g' 2>/dev/null)" && [[ -z "$size" ]]; then
-          print_stderr "$ERR"
+          print_stderr "$ERR15"
     fi
   else
     if ! count="$(find "$input" -not -path "${output}/*" -not -path "*/\.*" -type f | \
-        wc -l)" && [[ -z "$count" ]]; then
-          print_stderr "$ERR"
+        wc -l)" || [[ -z "$count" ]]; then
+          print_stderr "$ERR16"
     fi
-    if ! size="$(du -s --exclude="${output}/" --exclude="./\.*" | awk '{ print $1 }' | \
-        sed -e 's/[a-zA-Z]\+$//g')" && [[ -z "$size" ]]; then
-          print_stderr "$ERR"
+    if ! size="$(du -s --exclude="${output}/" --exclude="./\.*" "$input" | awk '{ print $1 }' | \
+        sed -e 's/[a-zA-Z]\+$//g')" || [[ -z "$size" ]]; then
+          print_stderr "$ERR17"
     fi
   fi
 
@@ -251,6 +255,8 @@ fi
 
 set_up "$1"
 
+echo "HALLO"
+
 # Grettings
 printf "%s %s\n" "SCRIPT NAME"     "$SCRIPT_NAME"
 printf "%s %s\n" "SCRIPT VERSION"  "$SCRIPT_VERSION"
@@ -260,7 +266,7 @@ printf "%s %s\n" "FILES COUNT:"    "$INPUT_FOLDER_COUNT"
 printf "%s %s\n" "FOLDER SIZE:"    "$INPUT_FOLDER_SIZE"
 printf "%s %s\n" "CSV EXPORT: "    "${OUTPUT_FOLDER}/${CSV}"
 
-flat_fs "$INPUT_FOLDER"
+transverse "$INPUT_FOLDER"
 
 clean_up
 
